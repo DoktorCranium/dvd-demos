@@ -1,0 +1,7 @@
+superuser:***:0:root
+daemon::1:daemon,avg,dmitry
+sys::2:bin,sys,yst,root
+bin::3:bin,sys,avg,alex
+uucp:***:4:uucp
+users:***:10:sviridov,flerov,guba,polina,lena,tasha,guest,test
+

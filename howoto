@@ -1,0 +1,12 @@
+Get simh 4.0.beta from here
+
+https://github.com/shattered/simh/tree/simh-dvk
+
+git clone -b simh-dvk https://github.com/shattered/simh.git
+
+
+Get the demos 3.0 images here 
+
+https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/vak-opensource/dvk-demos.zip
+
+
